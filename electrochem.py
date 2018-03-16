@@ -11,6 +11,179 @@ import scipy
 import pickle
 import os.path
 
+
+def trace(names, chains, true_values=None):
+    # If we switch to Python3 exclusively, bins and alpha can be keyword-only
+    # arguments
+    bins = 40
+    alpha = 0.5
+    chain = chains[0]
+    n_sample, n_param = chain.shape
+    if n_param > 6:
+        n_param /= 2
+        second = True
+    else:
+        second = False
+
+    # Set up figure, plot first chain
+    if second:
+        fig, axes = plt.subplots(n_param, 2, figsize=(8, 1.5 * n_param))
+    else:
+        fig, axes = plt.subplots(n_param, 1, figsize=(4, 1.5 * n_param))
+    for i in range(n_param):
+        if second:
+            # Add histogram subplot
+            axes[i, 0].set_xlabel(names[i])
+            axes[i, 0].set_ylabel('Frequency')
+            axes[i, 0].hist(
+                chain[:, i], bins=bins, alpha=alpha, label='Chain 1')
+            if true_values is not None:
+                ymin_tv, ymax_tv = axes[i, 0].get_ylim()
+                axes[i, 0].plot(
+                    [true_values[i], true_values[i]],
+                       [0.0, ymax_tv],
+                       '--', c='k')
+
+        # Add trace subplot
+            axes[i, 1].set_xlabel(names[n_param + i])
+            axes[i, 1].set_ylabel('Frequency')
+            axes[i, 1].hist(
+                chain[:, n_param + i], bins=bins, alpha=alpha, label='Chain 1')
+            if true_values is not None:
+                ymin_tv, ymax_tv = axes[i, 1].get_ylim()
+                axes[i, 1].plot(
+                    [true_values[n_param + i], true_values[n_param + i]],
+                       [0.0, ymax_tv],
+                       '--', c='k')
+
+        else:
+            # Add histogram subplot
+            axes[i].set_xlabel(names[i])
+            axes[i].set_ylabel('Frequency')
+            axes[i].hist(chain[:, i], bins=bins, alpha=alpha, label='Chain 1')
+            if true_values is not None:
+                ymin_tv, ymax_tv = axes[i].get_ylim()
+                axes[i].plot(
+                    [true_values[i], true_values[i]],
+                       [0.0, ymax_tv],
+                       '--', c='k')
+
+    # Plot additional chains
+    if len(chains) > 1:
+        for i_chain, chain in enumerate(chains[1:]):
+            if chain.shape[1] != n_param:
+                raise ValueError(
+                    'All chains must have the same number of parameters.')
+            for i in range(n_param):
+                axes[i].hist(chain[:, i], bins=bins, alpha=alpha,
+                             label='Chain ' + str(2 + i_chain))
+        # axes[0, 0].legend()
+
+    plt.tight_layout()
+    return fig, axes
+
+
+def pairwise(names, chain, kde=False, opacity=None):
+    # Check chain size
+    n_sample, n_param = chain.shape
+
+    # Create figure
+    fig_size = (10, 10)
+    fig, axes = plt.subplots(n_param, n_param, figsize=fig_size)
+
+    bins = 25
+    for i in range(n_param):
+        for j in range(n_param):
+            if i == j:
+
+                # Diagonal: Plot a histogram
+                xmin, xmax = np.min(chain[:, i]), np.max(chain[:, i])
+                xbins = np.linspace(xmin, xmax, bins)
+                axes[i, j].set_xlim(xmin, xmax)
+                axes[i, j].hist(chain[:, i], bins=xbins, normed=True)
+
+                # Add kde plot
+                if kde:
+                    x = np.linspace(xmin, xmax, 100)
+                    axes[i, j].plot(x, stats.gaussian_kde(chain[:, i])(x))
+
+            elif i < j:
+                # Top-right: no plot
+                axes[i, j].axis('off')
+
+            else:
+                # Lower-left: Plot the samples as density map
+                xmin, xmax = np.min(chain[:, j]), np.max(chain[:, j])
+                ymin, ymax = np.min(chain[:, i]), np.max(chain[:, i])
+                axes[i, j].set_xlim(xmin, xmax)
+                axes[i, j].set_ylim(ymin, ymax)
+
+                if not kde:
+                    # Create scatter plot
+
+                    # Determine point opacity
+                    num_points = len(chain[:, i])
+                    if opacity is None:
+                        if num_points < 10:
+                            opacity = 1.0
+                        else:
+                            opacity = 1.0 / np.log10(num_points)
+
+                    # Scatter points
+                    axes[i, j].scatter(
+                        chain[:, j], chain[:, i], alpha=opacity, s=0.1)
+
+                else:
+                    # Create a KDE-based plot
+
+                    # Plot values
+                    values = np.vstack([chain[:, j], chain[:, i]])
+                    axes[i, j].imshow(
+                        np.rot90(values), cmap=plt.cm.Blues,
+                        extent=[xmin, xmax, ymin, ymax])
+
+                    # Create grid
+                    xx, yy = np.mgrid[xmin:xmax:100j, ymin:ymax:100j]
+                    positions = np.vstack([xx.ravel(), yy.ravel()])
+
+                    # Get kernel density estimate and plot contours
+                    kernel = stats.gaussian_kde(values)
+                    f = np.reshape(kernel(positions).T, xx.shape)
+                    axes[i, j].contourf(xx, yy, f, cmap='Blues')
+                    axes[i, j].contour(xx, yy, f, colors='k')
+
+                    # Force equal aspect ratio
+                    # See: https://stackoverflow.com/questions/7965743
+                    im = axes[i, j].get_images()
+                    ex = im[0].get_extent()
+                    # Matplotlib raises a warning here (on 2.7 at least)
+                    # We can't do anything about it, so no other option than
+                    # to suppress it at this stage...
+                    with warnings.catch_warnings():
+                        warnings.simplefilter('ignore', UnicodeWarning)
+                        axes[i, j].set_aspect(
+                            abs((ex[1] - ex[0]) / (ex[3] - ex[2])))
+
+            # Set tick labels
+            if i < n_param - 1:
+                # Only show x tick labels for the last row
+                axes[i, j].set_xticklabels([])
+            else:
+                # Rotate the x tick labels to fit in the plot
+                for tl in axes[i, j].get_xticklabels():
+                    tl.set_rotation(45)
+
+            if j > 0:
+                # Only show y tick labels for the first column
+                axes[i, j].set_yticklabels([])
+
+        # Set axis labels
+        axes[-1, i].set_xlabel(names[i])
+        axes[i, 0].set_ylabel(names[i])
+
+    return fig, axes
+
+
 DEFAULT = {
     'reversed': True,
     'Estart': 0.5,
@@ -101,16 +274,35 @@ Gamma_0 = 1.0e-9 * np.diag(mu_0)
 
 # parameters = np.zeros((samples,len(mean)))
 # values = np.zeros((samples,len(times)))
-pickle_file = 'samplers_and_posteriors.pickle'
+synthetic = True 
+if synthetic:
+    pickle_file = 'syn_samplers_and_posteriors.pickle'
+    sampled_true_parameters = np.zeros((len(names), len(filenames)))
+    mu_truth = np.array([model.params[i] for i in names])
+    stddev_truth = np.array([1.0, 0.075, 0.007, 0.03, 0.005])
+    noise = 0.027
+else:
+    pickle_file = 'samplers_and_posteriors.pickle'
+
 if not os.path.isfile(pickle_file):
     log_posteriors = []
     samplers = []
-    for filename in filenames:
+    for i, filename in enumerate(filenames):
+
         data = electrochemistry.ECTimeData(
             filename, model, ignore_begin_samples=5, ignore_end_samples=0)
+        if synthetic:
+            true_parameters = mu_truth + \
+                np.random.normal(mu_truth, stddev_truth)
+            sampled_true_parameters[:, i] = true_parameters
+            current, times = model.simulate(use_times=data.times)
+            current = current + np.random.normal(0, noise, size=len(current))
+        else:
+            current = data.current
+            times = data.times
 
         problem = pints.SingleSeriesProblem(
-            pints_model, data.times, data.current)
+            pints_model, times, current)
         boundaries = pints.Boundaries(lower_bounds, upper_bounds)
 
         # Create a new log-likelihood function (adds an extra parameter!)
@@ -120,33 +312,32 @@ if not os.path.isfile(pickle_file):
         large = 1e9
         param_prior = pints.MultivariateNormalLogPrior(
             mu_0, large * np.eye(len(mu_0)))
-        param_prior2 = pints.UniformLogPrior(
-            [lower_bounds[:-1]], [upper_bounds[:-1]])
         noise_prior = pints.UniformLogPrior(
             [lower_bounds[-1]], [upper_bounds[-1]])
         log_prior = pints.ComposedLogPrior(param_prior, noise_prior)
-        log_prior2 = pints.ComposedLogPrior(param_prior2, noise_prior)
 
         # Create a posterior log-likelihood (log(likelihood * prior))
         log_posterior = pints.LogPosterior(log_likelihood, log_prior)
-        log_posterior2 = pints.LogPosterior(log_likelihood, log_prior2)
         log_posteriors.append(log_posterior)
         score = pints.ProbabilityBasedError(log_posterior)
 
-        found_parameters, found_value = pints.optimise(
-            score,
-            x0,
-            sigma0,
-            boundaries,
-            method=pints.CMAES
-        )
+        if synthetic:
+            found_parameters = list(true_parameters)+[noise]
+        else:
+            found_parameters, found_value = pints.optimise(
+                score,
+                x0,
+                sigma0,
+                boundaries,
+                method=pints.CMAES
+            )
 
-        values = pints_model.simulate(found_parameters, data.times)
-        plt.clf()
-        plt.plot(data.times, values, label='sim')
-        plt.plot(data.times, data.current, label='exp')
-        plt.legend()
-        plt.savefig('fit%s.pdf' % filename)
+            values = pints_model.simulate(found_parameters, times)
+            plt.clf()
+            plt.plot(data.times, values, label='sim')
+            plt.plot(data.times, data.current, label='exp')
+            plt.legend()
+            plt.savefig('fit%s.pdf' % filename)
 
         sampler = pints.AdaptiveCovarianceMCMC(found_parameters)
         samplers.append(sampler)
@@ -154,12 +345,18 @@ if not os.path.isfile(pickle_file):
     pickle.dump((samplers, log_posteriors), open(pickle_file, 'wb'))
 else:
     samplers, log_posteriors = pickle.load(open(pickle_file, 'rb'))
+    print('using starting points:')
+    for sampler in samplers:
+        print('\t', sampler._x0)
 
 
-pickle_file = 'chain_and_exp_chains.pickle'
+if synthetic:
+    pickle_file = 'syn_chain_and_exp_chains.pickle'
+else:
+    pickle_file = 'chain_and_exp_chains.pickle'
 if not os.path.isfile(pickle_file):
     # burn in the individual samplers
-    n_burn_in = 1000
+    n_burn_in = 0 
     for sample in range(n_burn_in):
         if sample % 10 == 0:
             print('x', end='')
@@ -168,7 +365,6 @@ if not os.path.isfile(pickle_file):
         for i, (sampler, log_posterior) in enumerate(zip(samplers, log_posteriors)):
             x = sampler.ask()
             sampler.tell(log_posterior(x))
-
 
     # Run a simple hierarchical gibbs-mcmc routine
     n_samples = 10000
@@ -215,19 +411,37 @@ if not os.path.isfile(pickle_file):
     pickle.dump((chain, exp_chains), open(pickle_file, 'wb'))
 else:
     chain, exp_chains = pickle.load(open(pickle_file, 'rb'))
-    n_samples = chain.shape[0] 
+    n_samples = chain.shape[0]
 
 
 # drop first half of chain
 chain = chain[int(n_samples / 2.0):,:]
 exp_chains = [i[int(n_samples / 2.0):,:] for i in exp_chains]
 
+if synthetic:
+    sample_mean = np.mean(sampled_true_parameters, 1)
+    sample_stddev = np.std(sampled_true_parameters, 1)
+
 # Look at distribution in chain
 print('plotting', chain.shape)
-print(len(mu_0))
-pints.plot.pairwise(chain, kde=False)
-plt.savefig('hpairwise.pdf')
-pints.plot.trace(chain)
-plt.savefig('htrace.pdf')
-pints.plot.trace(*exp_chains)
-plt.savefig('hchains.pdf')
+namesbase = [r'k_0', r'E_0', r'C_{dl}', r'R_u', r'\alpha']
+print(names)
+names = [r'$%s$' % i for i in namesbase]
+names_std = [r'$\sigma_{%s}$' % i for i in namesbase]
+print(names)
+pairwise(names + names_std, chain, kde=False)
+if synthetic:
+    plt.savefig('syn_hpairwise.pdf')
+    trace(names + names_std, [chain],
+          true_values=list(sample_mean) + list(sample_stddev))
+    plt.savefig('syn_htrace.pdf')
+else:
+    plt.savefig('hpairwise.pdf')
+    trace(names + names_std, chain)
+    plt.savefig('htrace.pdf')
+
+trace(names + [r'$n$'], exp_chains)
+if synthetic:
+    plt.savefig('syn_hchains.pdf')
+else:
+    plt.savefig('hchains.pdf')
