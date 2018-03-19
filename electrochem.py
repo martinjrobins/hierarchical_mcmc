@@ -11,6 +11,53 @@ import scipy
 import pickle
 import os.path
 
+def trace2(names, chains, true_values=None):
+    # If we switch to Python3 exclusively, bins and alpha can be keyword-only
+    # arguments
+    bins = 40
+    alpha = 0.5
+    chain = chains[0]
+    n_sample, n_param = chain.shape
+    if n_param > 6:
+        n_param /= 2
+        second = True
+    else:
+        second = False
+
+    # Set up figure, plot first chain
+    if second:
+        fig, axes = plt.subplots(n_param, 2, figsize=(8, 1.5 * n_param))
+    else:
+        fig, axes = plt.subplots(n_param, 1, figsize=(4, 1.5 * n_param))
+    for i in range(n_param):
+        if second:
+            # Add histogram subplot
+            axes[i, 0].set_xlabel("Sample")
+            axes[i, 0].set_ylabel(names[i])
+            axes[i, 0].plot(chain[:, i], label='Chain 1')
+
+            axes[i, 1].set_xlabel("Sample")
+            axes[i, 1].set_ylabel(names[i+n_param])
+            axes[i, 1].plot(chain[:, i+n_param], label='Chain 1')
+
+        else:
+            axes[i].set_xlabel("Sample")
+            axes[i].set_ylabel(names[i])
+            axes[i].plot(chain[:, i], label='Chain 1')
+
+    # Plot additional chains
+    if len(chains) > 1:
+        for i_chain, chain in enumerate(chains[1:]):
+            if chain.shape[1] != n_param:
+                raise ValueError(
+                    'All chains must have the same number of parameters.')
+            for i in range(n_param):
+                axes[i].plot(chain[:, i],
+                             label='Chain ' + str(2 + i_chain))
+        # axes[0, 0].legend()
+
+    plt.tight_layout()
+    return fig, axes
 
 def trace(names, chains, true_values=None):
     # If we switch to Python3 exclusively, bins and alpha can be keyword-only
@@ -279,7 +326,9 @@ if synthetic:
     pickle_file = 'syn_samplers_and_posteriors.pickle'
     sampled_true_parameters = np.zeros((len(names), len(filenames)))
     mu_truth = np.array([model.params[i] for i in names])
-    stddev_truth = np.array([1.0, 0.075, 0.007, 0.03, 0.005])
+    print('mu_truth = ', mu_truth)
+    stddev_truth = np.array([0.7, 0.06, 0.0007, 0.003, 0.005])
+    print('stddev_truth = ', stddev_truth)
     noise = 0.027
 else:
     pickle_file = 'samplers_and_posteriors.pickle'
@@ -292,11 +341,13 @@ if not os.path.isfile(pickle_file):
         data = electrochemistry.ECTimeData(
             filename, model, ignore_begin_samples=5, ignore_end_samples=0)
         if synthetic:
-            true_parameters = mu_truth + \
-                np.random.normal(mu_truth, stddev_truth)
+            while True:
+                true_parameters = np.random.normal(mu_truth, stddev_truth)
+                if np.all(true_parameters >= lower_bounds[:-1]) and np.all(true_parameters < upper_bounds[:-1]):
+                    break
             sampled_true_parameters[:, i] = true_parameters
             current, times = model.simulate(use_times=data.times)
-            current = current + np.random.normal(0, noise, size=len(current))
+            current = np.random.normal(current, noise)
         else:
             current = data.current
             times = data.times
@@ -346,8 +397,9 @@ if not os.path.isfile(pickle_file):
 else:
     samplers, log_posteriors = pickle.load(open(pickle_file, 'rb'))
     print('using starting points:')
-    for sampler in samplers:
+    for i, sampler in enumerate(samplers):
         print('\t', sampler._x0)
+        sampled_true_parameters[:, i] = sampler._x0[:-1]
 
 
 if synthetic:
@@ -356,7 +408,7 @@ else:
     pickle_file = 'chain_and_exp_chains.pickle'
 if not os.path.isfile(pickle_file):
     # burn in the individual samplers
-    n_burn_in = 0 
+    n_burn_in = 1000 
     for sample in range(n_burn_in):
         if sample % 10 == 0:
             print('x', end='')
@@ -364,10 +416,13 @@ if not os.path.isfile(pickle_file):
         # generate samples of hierarchical p1e9 * arams
         for i, (sampler, log_posterior) in enumerate(zip(samplers, log_posteriors)):
             x = sampler.ask()
-            sampler.tell(log_posterior(x))
+            if np.any(x < lower_bounds) or np.any(x > upper_bounds):
+                sampler.tell(-float('inf'))
+            else:
+                sampler.tell(log_posterior(x))
 
     # Run a simple hierarchical gibbs-mcmc routine
-    n_samples = 10000
+    n_samples = 2000
     chain = np.zeros((n_samples, 2 * len(mu_0)))
     exp_chains = [np.zeros((n_samples, len(x0))) for i in range(nexp)]
     for sample in range(n_samples):
@@ -380,7 +435,10 @@ if not os.path.isfile(pickle_file):
         error = 0
         for i, (sampler, log_posterior) in enumerate(zip(samplers, log_posteriors)):
             x = sampler.ask()
-            xs[:, i] = sampler.tell(log_posterior(x))
+            if np.any(x < lower_bounds) or np.any(x > upper_bounds):
+                xs[:, i] = sampler.tell(-float('inf'))
+            else:
+                xs[:, i] = sampler.tell(log_posterior(x))
             exp_chains[i][sample,:] = xs[:, i]
 
         # sample mean and covariance from a normal inverse wishart
@@ -435,13 +493,25 @@ if synthetic:
     trace(names + names_std, [chain],
           true_values=list(sample_mean) + list(sample_stddev))
     plt.savefig('syn_htrace.pdf')
+    trace2(names + names_std, [chain],
+          true_values=list(sample_mean) + list(sample_stddev))
+    plt.savefig('syn_htrace2.pdf')
 else:
     plt.savefig('hpairwise.pdf')
     trace(names + names_std, chain)
     plt.savefig('htrace.pdf')
+    trace2(names + names_std, [chain],
+          true_values=list(sample_mean) + list(sample_stddev))
+    plt.savefig('htrace2.pdf')
 
 trace(names + [r'$n$'], exp_chains)
 if synthetic:
     plt.savefig('syn_hchains.pdf')
 else:
     plt.savefig('hchains.pdf')
+trace2(names + [r'$n$'], exp_chains)
+if synthetic:
+    plt.savefig('syn_hchains2.pdf')
+else:
+    plt.savefig('hchains2.pdf')
+
