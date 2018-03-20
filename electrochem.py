@@ -346,8 +346,9 @@ if not os.path.isfile(pickle_file):
                 if np.all(true_parameters >= lower_bounds[:-1]) and np.all(true_parameters < upper_bounds[:-1]):
                     break
             sampled_true_parameters[:, i] = true_parameters
-            current, times = model.simulate(use_times=data.times)
+            current = pints_model.simulate(true_parameters, data.times)
             current = np.random.normal(current, noise)
+            times = data.times
         else:
             current = data.current
             times = data.times
@@ -408,7 +409,7 @@ else:
     pickle_file = 'chain_and_exp_chains.pickle'
 if not os.path.isfile(pickle_file):
     # burn in the individual samplers
-    n_burn_in = 1000 
+    n_burn_in = 0 
     for sample in range(n_burn_in):
         if sample % 10 == 0:
             print('x', end='')
@@ -422,7 +423,7 @@ if not os.path.isfile(pickle_file):
                 sampler.tell(log_posterior(x))
 
     # Run a simple hierarchical gibbs-mcmc routine
-    n_samples = 2000
+    n_samples = 10000
     chain = np.zeros((n_samples, 2 * len(mu_0)))
     exp_chains = [np.zeros((n_samples, len(x0))) for i in range(nexp)]
     for sample in range(n_samples):
@@ -465,7 +466,6 @@ if not os.path.isfile(pickle_file):
         for i, (log_posterior, sampler) in enumerate(zip(log_posteriors, samplers)):
             log_posterior._log_prior._priors[0]._mean = means_sample
             log_posterior._log_prior._priors[0]._cov = covariance_sample
-
     pickle.dump((chain, exp_chains), open(pickle_file, 'wb'))
 else:
     chain, exp_chains = pickle.load(open(pickle_file, 'rb'))
