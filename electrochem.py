@@ -7,6 +7,7 @@ import electrochemistry
 import pints.plot
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 import scipy
 import pickle
 import os.path
@@ -35,15 +36,18 @@ def trace2(names, chains, true_values=None):
             axes[i, 0].set_xlabel("Sample")
             axes[i, 0].set_ylabel(names[i])
             axes[i, 0].plot(chain[:, i], label='Chain 1')
+            axes[i, 0].ticklabel_format(style='sci', scilimits=(-2, 5))
 
             axes[i, 1].set_xlabel("Sample")
             axes[i, 1].set_ylabel(names[i+n_param])
             axes[i, 1].plot(chain[:, i+n_param], label='Chain 1')
+            axes[i, 1].ticklabel_format(style='sci', scilimits=(-2, 5))
 
         else:
             axes[i].set_xlabel("Sample")
             axes[i].set_ylabel(names[i])
             axes[i].plot(chain[:, i], label='Chain 1')
+            axes[i].ticklabel_format(style='sci', scilimits=(-2, 5))
 
     # Plot additional chains
     if len(chains) > 1:
@@ -84,6 +88,7 @@ def trace(names, chains, true_values=None):
             axes[i, 0].set_ylabel('Frequency')
             axes[i, 0].hist(
                 chain[:, i], bins=bins, alpha=alpha, label='Chain 1')
+            axes[i, 0].ticklabel_format(style='sci', scilimits=(-2, 5))
             if true_values is not None:
                 ymin_tv, ymax_tv = axes[i, 0].get_ylim()
                 axes[i, 0].plot(
@@ -92,10 +97,15 @@ def trace(names, chains, true_values=None):
                        '--', c='k')
 
         # Add trace subplot
+            min_var = np.min(chain[:, n_param+i])
+            max_var = np.max(chain[:, n_param+i])
+            bin_list = np.linspace(min_var, max_var-(max_var-min_var)*0.7, bins)
             axes[i, 1].set_xlabel(names[n_param + i])
             axes[i, 1].set_ylabel('Frequency')
             axes[i, 1].hist(
-                chain[:, n_param + i], bins=bins, alpha=alpha, label='Chain 1')
+                chain[:, n_param + i], bins=bin_list, alpha=alpha, label='Chain 1')
+
+            axes[i, 1].ticklabel_format(style='sci', scilimits=(-2, 5))
             if true_values is not None:
                 ymin_tv, ymax_tv = axes[i, 1].get_ylim()
                 axes[i, 1].plot(
@@ -108,6 +118,7 @@ def trace(names, chains, true_values=None):
             axes[i].set_xlabel(names[i])
             axes[i].set_ylabel('Frequency')
             axes[i].hist(chain[:, i], bins=bins, alpha=alpha, label='Chain 1')
+            axes[i].ticklabel_format(style='sci', scilimits=(-2, 5))
             if true_values is not None:
                 ymin_tv, ymax_tv = axes[i].get_ylim()
                 axes[i].plot(
@@ -128,6 +139,55 @@ def trace(names, chains, true_values=None):
 
     plt.tight_layout()
     return fig, axes
+
+def grant_trace(names, chains, true_values=None):
+    # If we switch to Python3 exclusively, bins and alpha can be keyword-only
+    # arguments
+    bins = 40
+    alpha = 0.5
+    chain = chains[0]
+    n_sample, n_param = chain.shape
+    if n_param > 6:
+        n_param /= 2
+        second = True
+    else:
+        second = False
+
+    # Set up figure, plot first chain
+    fig, axes = plt.subplots(1, 1, figsize=(6, 6))
+    for i in range(1):
+        # Add trace subplot
+        min_var = np.min(chain[:, n_param+i])
+        max_var = np.max(chain[:, n_param+i])
+        bin_list = np.linspace(min_var, max_var-(max_var-min_var)*0.7, bins)
+        axes[i, 1].set_xlabel(names[n_param + i])
+        axes[i, 1].set_ylabel('Frequency')
+        axes[i, 1].hist(
+            chain[:, n_param + i], bins=bin_list, alpha=alpha, label='Chain 1')
+
+        axes[i, 1].ticklabel_format(style='sci', scilimits=(-2, 5))
+        if true_values is not None:
+            ymin_tv, ymax_tv = axes[i, 1].get_ylim()
+            axes[i, 1].plot(
+                [true_values[n_param + i], true_values[n_param + i]],
+                   [0.0, ymax_tv],
+                   '--', c='k')
+
+    # Plot additional chains
+    if len(chains) > 1:
+        for i_chain, chain in enumerate(chains[1:]):
+            if chain.shape[1] != n_param:
+                raise ValueError(
+                    'All chains must have the same number of parameters.')
+            for i in range(1):
+                axes[i].hist(chain[:, i], bins=bins, alpha=alpha,
+                             label='Chain ' + str(2 + i_chain))
+        # axes[0, 0].legend()
+
+    plt.tight_layout()
+    return fig, axes
+
+
 
 
 def pairwise(names, chain, kde=False, opacity=None):
@@ -266,9 +326,9 @@ model = electrochemistry.ECModel(DEFAULT)
 data0 = electrochemistry.ECTimeData(
     filenames[0], model, ignore_begin_samples=5, ignore_end_samples=0)
 max_current = np.max(data0.current)
-sim_current, sim_times = model.simulate(use_times=data0.times)
+sim_current = model.simulate(data0.times)
 plt.plot(data0.times, data0.current, label='exp')
-plt.plot(sim_times, sim_current, label='sim')
+plt.plot(data0.times, sim_current, label='sim')
 plt.legend()
 plt.savefig('default.pdf')
 max_k0 = model.non_dimensionalise(1000, 'k0')
@@ -282,7 +342,7 @@ lower_bounds = [
     0.0,
     0.0,
     0.4,
-    0.005 * max_current]
+    0.001 * max_current]
 
 upper_bounds = [
     100 * model.params['k0'],
@@ -290,16 +350,18 @@ upper_bounds = [
     10 * model.params['Cdl'],
     10 * model.params['Ru'],
     0.6,
-    0.05 * max_current]
+    0.03 * max_current]
 
 print('lower true upper')
 for u, l, t in zip(upper_bounds, lower_bounds, true):
     print(l, ' ', t, ' ', u)
+print(lower_bounds[-1], ' ', -1, ' ', upper_bounds[-1])
 
 
 # Load a forward model
 pints_model = electrochemistry.PintsModelAdaptor(model, names)
 values = pints_model.simulate(true, data0.times)
+print(values.shape)
 plt.clf()
 plt.plot(data0.times, data0.current, label='exp')
 plt.plot(data0.times, values, label='sim')
@@ -317,19 +379,22 @@ sigma0 = [0.5 * (h - l) for l, h in zip(lower_bounds, upper_bounds)]
 k_0 = 0
 nu_0 = 1
 mu_0 = np.array(x0[:-1])
-Gamma_0 = 1.0e-9 * np.diag(mu_0)
+Gamma_0 = np.diag(sigma0)
 
 # parameters = np.zeros((samples,len(mean)))
 # values = np.zeros((samples,len(times)))
-synthetic = True 
+sampled_true_parameters = np.zeros((len(names), len(filenames)))
+synthetic = False
+use_cmaes = True
+hierarchical = True
+
 if synthetic:
     pickle_file = 'syn_samplers_and_posteriors.pickle'
-    sampled_true_parameters = np.zeros((len(names), len(filenames)))
     mu_truth = np.array([model.params[i] for i in names])
     print('mu_truth = ', mu_truth)
     stddev_truth = np.array([0.7, 0.06, 0.0007, 0.003, 0.005])
     print('stddev_truth = ', stddev_truth)
-    noise = 0.027
+    noise = 0.003*max_current
 else:
     pickle_file = 'samplers_and_posteriors.pickle'
 
@@ -384,12 +449,6 @@ if not os.path.isfile(pickle_file):
                 method=pints.CMAES
             )
 
-            values = pints_model.simulate(found_parameters, times)
-            plt.clf()
-            plt.plot(data.times, values, label='sim')
-            plt.plot(data.times, data.current, label='exp')
-            plt.legend()
-            plt.savefig('fit%s.pdf' % filename)
 
         sampler = pints.AdaptiveCovarianceMCMC(found_parameters)
         samplers.append(sampler)
@@ -398,9 +457,24 @@ if not os.path.isfile(pickle_file):
 else:
     samplers, log_posteriors = pickle.load(open(pickle_file, 'rb'))
     print('using starting points:')
-    for i, sampler in enumerate(samplers):
+    for i, (sampler, log_posterior) in enumerate(zip(samplers, log_posteriors)):
         print('\t', sampler._x0)
         sampled_true_parameters[:, i] = sampler._x0[:-1]
+        if not use_cmaes:
+            sampler._x0 = pints.vector(x0)
+
+        plt.clf()
+        times = log_posterior._log_likelihood._problem._times
+        values = log_posterior._log_likelihood._problem._values
+        sim_values = log_posterior._log_likelihood._problem.evaluate(sampled_true_parameters[:, i])
+        plt.plot(times, values, label='exp')
+        plt.plot(times, sim_values, label='sim')
+        plt.xlabel(r'$t$')
+        plt.ylabel(r'$I_{tot}$')
+        plt.legend()
+        filename = filenames[i]
+        plt.savefig('fit%s.pdf' % filename)
+
 
 
 if synthetic:
@@ -409,7 +483,7 @@ else:
     pickle_file = 'chain_and_exp_chains.pickle'
 if not os.path.isfile(pickle_file):
     # burn in the individual samplers
-    n_burn_in = 0 
+    n_burn_in = 0
     for sample in range(n_burn_in):
         if sample % 10 == 0:
             print('x', end='')
@@ -463,9 +537,10 @@ if not os.path.isfile(pickle_file):
         chain[sample, len(mu_0):] = np.sqrt(np.diagonal(covariance_sample))
 
         # replace individual sampler's priors with hierarchical params,
-        for i, (log_posterior, sampler) in enumerate(zip(log_posteriors, samplers)):
-            log_posterior._log_prior._priors[0]._mean = means_sample
-            log_posterior._log_prior._priors[0]._cov = covariance_sample
+        if hierarchical:
+            for i, (log_posterior, sampler) in enumerate(zip(log_posteriors, samplers)):
+                log_posterior._log_prior._priors[0]._mean = means_sample
+                log_posterior._log_prior._priors[0]._cov = covariance_sample
     pickle.dump((chain, exp_chains), open(pickle_file, 'wb'))
 else:
     chain, exp_chains = pickle.load(open(pickle_file, 'rb'))
@@ -476,32 +551,44 @@ else:
 chain = chain[int(n_samples / 2.0):,:]
 exp_chains = [i[int(n_samples / 2.0):,:] for i in exp_chains]
 
+# convert to variance samples
+chain[:, len(mu_0):] = chain[:, len(mu_0):]**2
+
+
 if synthetic:
     sample_mean = np.mean(sampled_true_parameters, 1)
-    sample_stddev = np.std(sampled_true_parameters, 1)
+    sample_var = np.var(sampled_true_parameters, 1)
+else:
+    concat_exp_chains = np.concatenate(exp_chains, axis=0)
+    sample_mean = np.mean(concat_exp_chains, axis=0)[:-1]
+    sample_var = np.var(concat_exp_chains, axis=0)[:-1]
+
 
 # Look at distribution in chain
 print('plotting', chain.shape)
 namesbase = [r'k_0', r'E_0', r'C_{dl}', r'R_u', r'\alpha']
 print(names)
-names = [r'$%s$' % i for i in namesbase]
-names_std = [r'$\sigma_{%s}$' % i for i in namesbase]
+names = [r'$\hat{%s}$' % i for i in namesbase]
+names_std = [r'$\sigma^2_{%s}$' % i for i in namesbase]
 print(names)
 pairwise(names + names_std, chain, kde=False)
 if synthetic:
     plt.savefig('syn_hpairwise.pdf')
     trace(names + names_std, [chain],
-          true_values=list(sample_mean) + list(sample_stddev))
+          true_values=list(sample_mean) + list(sample_var))
     plt.savefig('syn_htrace.pdf')
     trace2(names + names_std, [chain],
-          true_values=list(sample_mean) + list(sample_stddev))
+          true_values=list(sample_mean) + list(sample_var))
     plt.savefig('syn_htrace2.pdf')
 else:
     plt.savefig('hpairwise.pdf')
-    trace(names + names_std, chain)
+    trace(names + names_std, [chain],
+          true_values=list(sample_mean) + list(sample_var))
     plt.savefig('htrace.pdf')
+
+
     trace2(names + names_std, [chain],
-          true_values=list(sample_mean) + list(sample_stddev))
+          true_values=list(sample_mean) + list(sample_var))
     plt.savefig('htrace2.pdf')
 
 trace(names + [r'$n$'], exp_chains)
@@ -515,3 +602,5 @@ if synthetic:
 else:
     plt.savefig('hchains2.pdf')
 
+grant_trace(names + [r'$n$'], exp_chains)
+plt.savefig('hchains_grant.pdf')
