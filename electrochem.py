@@ -6,6 +6,8 @@ sys.path.insert(0, '../electrochemistry/build')
 import electrochemistry
 import pints.plot
 import numpy as np
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import scipy
@@ -418,7 +420,7 @@ if not os.path.isfile(pickle_file):
             current = data.current
             times = data.times
 
-        problem = pints.SingleSeriesProblem(
+        problem = pints.SingleOutputProblem(
             pints_model, times, current)
         boundaries = pints.Boundaries(lower_bounds, upper_bounds)
 
@@ -448,7 +450,6 @@ if not os.path.isfile(pickle_file):
                 boundaries,
                 method=pints.CMAES
             )
-
 
         sampler = pints.AdaptiveCovarianceMCMC(found_parameters)
         samplers.append(sampler)
