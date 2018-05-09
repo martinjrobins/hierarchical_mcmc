@@ -11,6 +11,8 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import scipy
+import scipy.stats
+from scipy.stats import invwishart
 import pickle
 import os.path
 
@@ -142,7 +144,7 @@ def trace(names, chains, true_values=None):
     plt.tight_layout()
     return fig, axes
 
-def grant_trace(names, chains, true_values=None):
+def grant_trace(names, chains, chains2):
     # If we switch to Python3 exclusively, bins and alpha can be keyword-only
     # arguments
     bins = 40
@@ -156,24 +158,19 @@ def grant_trace(names, chains, true_values=None):
         second = False
 
     # Set up figure, plot first chain
-    fig, axes = plt.subplots(1, 1, figsize=(6, 6))
-    for i in range(1):
+    fig, axes = plt.subplots(1, 1, figsize=(4, 4))
+    for i in range(1,2):
         # Add trace subplot
-        min_var = np.min(chain[:, n_param+i])
-        max_var = np.max(chain[:, n_param+i])
+        min_var = np.min(chain[:, i])
+        max_var = np.max(chain[:, i])
         bin_list = np.linspace(min_var, max_var-(max_var-min_var)*0.7, bins)
-        axes[i, 1].set_xlabel(names[n_param + i])
-        axes[i, 1].set_ylabel('Frequency')
-        axes[i, 1].hist(
-            chain[:, n_param + i], bins=bin_list, alpha=alpha, label='Chain 1')
-
-        axes[i, 1].ticklabel_format(style='sci', scilimits=(-2, 5))
-        if true_values is not None:
-            ymin_tv, ymax_tv = axes[i, 1].get_ylim()
-            axes[i, 1].plot(
-                [true_values[n_param + i], true_values[n_param + i]],
-                   [0.0, ymax_tv],
-                   '--', c='k')
+        axes.set_xlabel(names[i])
+        axes.set_ylabel('Frequency')
+        axes.hist(
+            chain[:, i], bins=bin_list, alpha=alpha*1.5, label='lower')
+        axes.hist(
+            chains2[:, i], bins=bins, alpha=alpha*0.5, label='Chain 1')
+        axes.ticklabel_format(style='sci', scilimits=(-2, 5))
 
     # Plot additional chains
     if len(chains) > 1:
@@ -181,8 +178,8 @@ def grant_trace(names, chains, true_values=None):
             if chain.shape[1] != n_param:
                 raise ValueError(
                     'All chains must have the same number of parameters.')
-            for i in range(1):
-                axes[i].hist(chain[:, i], bins=bins, alpha=alpha,
+            for i in range(1,2):
+                axes.hist(chain[:, i], bins=bins, alpha=alpha,
                              label='Chain ' + str(2 + i_chain))
         # axes[0, 0].legend()
 
@@ -381,7 +378,7 @@ sigma0 = [0.5 * (h - l) for l, h in zip(lower_bounds, upper_bounds)]
 k_0 = 0
 nu_0 = 1
 mu_0 = np.array(x0[:-1])
-Gamma_0 = np.diag(sigma0)
+Gamma_0 = 1.0e-9 * np.diag(sigma0[:-1])
 
 # parameters = np.zeros((samples,len(mean)))
 # values = np.zeros((samples,len(times)))
@@ -603,5 +600,5 @@ if synthetic:
 else:
     plt.savefig('hchains2.pdf')
 
-grant_trace(names + [r'$n$'], exp_chains)
+grant_trace(namesbase + [r'$n$'], exp_chains,chain)
 plt.savefig('hchains_grant.pdf')
