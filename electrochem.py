@@ -15,6 +15,8 @@ import scipy.stats
 from scipy.stats import invwishart
 import pickle
 import os.path
+from math import pi, sqrt
+
 
 def trace2(names, chains, true_values=None):
     # If we switch to Python3 exclusively, bins and alpha can be keyword-only
@@ -67,11 +69,12 @@ def trace2(names, chains, true_values=None):
     plt.tight_layout()
     return fig, axes
 
-def trace(names, chains, true_values=None):
+
+def trace(names, units, chains, true_values=None, upper=None):
     # If we switch to Python3 exclusively, bins and alpha can be keyword-only
     # arguments
     bins = 40
-    alpha = 0.5
+    alpha = 0.8
     chain = chains[0]
     n_sample, n_param = chain.shape
     if n_param > 6:
@@ -87,48 +90,79 @@ def trace(names, chains, true_values=None):
         fig, axes = plt.subplots(n_param, 1, figsize=(4, 1.5 * n_param))
     for i in range(n_param):
         if second:
+
             # Add histogram subplot
-            axes[i, 0].set_xlabel(names[i])
-            axes[i, 0].set_ylabel('Frequency')
+            if units[i] != '':
+                axes[i, 0].set_xlabel('$'+names[i]+'$ ($'+units[i]+'$)')
+            else:
+                axes[i, 0].set_xlabel('$'+names[i]+'$')
+            axes[i, 0].set_ylabel(r'$P('+names[i]+')$')
             axes[i, 0].hist(
-                chain[:, i], bins=bins, alpha=alpha, label='Chain 1')
+                chain[:, i], bins=bins, alpha=alpha, density=True, label='Chain 1')
             axes[i, 0].ticklabel_format(style='sci', scilimits=(-2, 5))
             if true_values is not None:
                 ymin_tv, ymax_tv = axes[i, 0].get_ylim()
                 axes[i, 0].plot(
                     [true_values[i], true_values[i]],
-                       [0.0, ymax_tv],
-                       '--', c='k')
+                    [0.0, ymax_tv],
+                    '--', c='k')
 
         # Add trace subplot
             min_var = np.min(chain[:, n_param+i])
             max_var = np.max(chain[:, n_param+i])
             bin_list = np.linspace(min_var, max_var-(max_var-min_var)*0.7, bins)
-            axes[i, 1].set_xlabel(names[n_param + i])
-            axes[i, 1].set_ylabel('Frequency')
+            if units[i+n_param] != '':
+                axes[i, 1].set_xlabel('$'+names[i+n_param]+'$ ($'+units[i+n_param]+'$)')
+            else:
+                axes[i, 1].set_xlabel('$'+names[i+n_param]+'$')
+            axes[i, 1].set_ylabel(r'$P('+names[i]+')$')
             axes[i, 1].hist(
-                chain[:, n_param + i], bins=bin_list, alpha=alpha, label='Chain 1')
+                chain[:, n_param + i], bins=bin_list, density=True, alpha=alpha, label='Chain 1')
 
             axes[i, 1].ticklabel_format(style='sci', scilimits=(-2, 5))
             if true_values is not None:
                 ymin_tv, ymax_tv = axes[i, 1].get_ylim()
                 axes[i, 1].plot(
                     [true_values[n_param + i], true_values[n_param + i]],
-                       [0.0, ymax_tv],
-                       '--', c='k')
+                    [0.0, ymax_tv],
+                    '--', c='k')
 
         else:
+            if upper is not None and i+n_param-1 < upper.shape[1]:
+                print('plotting upper')
+                mins = [np.min(other[:, i]) for other in chains]
+                maxs = [np.max(other[:, i]) for other in chains]
+                min_mean = np.min(mins)
+                max_mean = np.max(maxs)
+                #min_mean -= 0.2*(max_mean-min_mean)
+                #max_mean += 0.2*(max_mean-min_mean)
+                x = np.linspace(min_mean, max_mean, 1000)
+                y = np.zeros(len(x))
+                for mean, var in zip(upper[:, i], upper[:, i+n_param-1]):
+                    y += np.exp(-(x-mean)**2/(2*var))/sqrt(2*pi*var)
+                y *= 1.0/upper.shape[0]
+                other_ax = axes[i].twinx()
+                other_ax.plot(x, y, label='tes')
+                other_ax.set_ylabel('$P('+names[i]+')$')
+
             # Add histogram subplot
-            axes[i].set_xlabel(names[i])
-            axes[i].set_ylabel('Frequency')
-            axes[i].hist(chain[:, i], bins=bins, alpha=alpha, label='Chain 1')
+            if units[i] != '':
+                axes[i].set_xlabel('$'+names[i]+'$ ($'+units[i]+'$)')
+            else:
+                axes[i].set_xlabel('$'+names[i]+'$')
+            axes[i].set_ylabel('$P_i('+names[i]+')$')
+            axes[i].hist(chain[:, i], bins=bins, density=True, alpha=alpha, label='Chain 1')
             axes[i].ticklabel_format(style='sci', scilimits=(-2, 5))
+            if i == 4:
+                axes[i].set_ylim(0, 0.3)
+            if i == 1:
+                axes[i].set_ylim(0, 0.25*1e5)
             if true_values is not None:
                 ymin_tv, ymax_tv = axes[i].get_ylim()
                 axes[i].plot(
                     [true_values[i], true_values[i]],
-                       [0.0, ymax_tv],
-                       '--', c='k')
+                    [0.0, ymax_tv],
+                    '--', c='k')
 
     # Plot additional chains
     if len(chains) > 1:
@@ -137,12 +171,13 @@ def trace(names, chains, true_values=None):
                 raise ValueError(
                     'All chains must have the same number of parameters.')
             for i in range(n_param):
-                axes[i].hist(chain[:, i], bins=bins, alpha=alpha,
+                axes[i].hist(chain[:, i], density=True, bins=bins, alpha=alpha,
                              label='Chain ' + str(2 + i_chain))
         # axes[0, 0].legend()
 
     plt.tight_layout()
     return fig, axes
+
 
 def grant_trace(names, chains, chains2):
     # If we switch to Python3 exclusively, bins and alpha can be keyword-only
@@ -150,7 +185,7 @@ def grant_trace(names, chains, chains2):
     bins = 40
     alpha = 0.5
     chain = chains[0]
-    n_sample, n_param = chain.shape
+    n_sample, n_param = chains2.shape
     if n_param > 6:
         n_param /= 2
         second = True
@@ -158,43 +193,54 @@ def grant_trace(names, chains, chains2):
         second = False
 
     # Set up figure, plot first chain
-    fig, axes = plt.subplots(1, 1, figsize=(4, 4))
-    for i in range(1,2):
+    fig, other_ax = plt.subplots(1, 1, figsize=(6, 4))
+    axes = other_ax.twinx()
+    for i in range(0, 1):
         # Add trace subplot
         min_var = np.min(chain[:, i])
         max_var = np.max(chain[:, i])
-        bin_list = np.linspace(min_var, max_var-(max_var-min_var)*0.7, bins)
-        axes.set_xlabel(names[i])
-        axes.set_ylabel('Frequency')
-        axes.hist(
-            chain[:, i], bins=bin_list, alpha=alpha*1.5, label='lower')
-        axes.hist(
-            chains2[:, i], bins=bins, alpha=alpha*0.5, label='Chain 1')
+        bin_list = np.linspace(min_var+(max_var-min_var)*0.7, max_var, bins)
+        axes.set_xlabel(r'$'+names[i]+'$')
+        axes.set_ylabel(r'$P_i('+names[i]+')$')
+        min_mean = np.min(chains2[:, i])
+        max_mean = np.max(chains2[:, i])
+        min_mean += 0.2*(max_mean-min_mean)
+        max_mean += 0.3*(max_mean-min_mean)
+        x = np.linspace(min_mean, max_mean, 1000)
+        y = np.zeros(len(x))
+        for mean, var in zip(chains2[:, i], chains2[:, i+n_param]):
+            y += np.exp(-(x-mean)**2/(2*var))/sqrt(2*pi*var)
+        y *= 1.0/chains2.shape[0]
+        # axes.hist(
+        #    chain[:, i], density=True, bins=bin_list, alpha=alpha*1.5, label='lower')
+        other_ax.plot(x, y, label=r'$P('+names[i]+')$')
         axes.ticklabel_format(style='sci', scilimits=(-2, 5))
+        #axes.set_ylim([0, 700])
+        other_ax.ticklabel_format(style='sci', scilimits=(-2, 5))
+        other_ax.set_xlabel(r'$'+names[i]+'$ ($V$)')
+        other_ax.set_ylabel(r'$P('+names[i]+')$')
+        #other_ax.set_ylim([0, 6])
+        other_ax.legend(loc='upper left')
 
     # Plot additional chains
-    if len(chains) > 1:
-        for i_chain, chain in enumerate(chains[1:]):
-            if chain.shape[1] != n_param:
-                raise ValueError(
-                    'All chains must have the same number of parameters.')
-            for i in range(1,2):
-                axes.hist(chain[:, i], bins=bins, alpha=alpha,
-                             label='Chain ' + str(2 + i_chain))
+    for i_chain, chain in enumerate(chains):
+        for i in range(0, 1):
+            axes.hist(chain[:, i], density=True, bins=bins, alpha=alpha,
+                      label='$P_'+str(i_chain)+'('+names[1]+')$')
         # axes[0, 0].legend()
+    axes.legend()
 
     plt.tight_layout()
     return fig, axes
 
 
-
-
 def pairwise(names, chain, kde=False, opacity=None):
     # Check chain size
     n_sample, n_param = chain.shape
+    n_param = n_param/2
 
     # Create figure
-    fig_size = (10, 10)
+    fig_size = (7, 7)
     fig, axes = plt.subplots(n_param, n_param, figsize=fig_size)
 
     bins = 25
@@ -284,8 +330,8 @@ def pairwise(names, chain, kde=False, opacity=None):
                 axes[i, j].set_yticklabels([])
 
         # Set axis labels
-        axes[-1, i].set_xlabel(names[i])
-        axes[i, 0].set_ylabel(names[i])
+        axes[-1, i].set_xlabel('$'+names[i]+'$')
+        axes[i, 0].set_ylabel('$'+names[i]+'$')
 
     return fig, axes
 
@@ -465,14 +511,15 @@ else:
         times = log_posterior._log_likelihood._problem._times
         values = log_posterior._log_likelihood._problem._values
         sim_values = log_posterior._log_likelihood._problem.evaluate(sampled_true_parameters[:, i])
-        plt.plot(times, values, label='exp')
-        plt.plot(times, sim_values, label='sim')
-        plt.xlabel(r'$t$')
-        plt.ylabel(r'$I_{tot}$')
+        E_0, T_0, L_0, I_0 = model._calculate_characteristic_values()
+        plt.plot(T_0*times, I_0*values*1e6, label='experiment')
+        plt.plot(T_0*times, I_0*sim_values*1e6, label='simulation')
+        plt.xlabel(r'$t$ (s)')
+        plt.ylabel(r'$I_{tot}$ ($\mu A$)')
         plt.legend()
         filename = filenames[i]
+        print('plotting fit for ', filename)
         plt.savefig('fit%s.pdf' % filename)
-
 
 
 if synthetic:
@@ -512,7 +559,7 @@ if not os.path.isfile(pickle_file):
                 xs[:, i] = sampler.tell(-float('inf'))
             else:
                 xs[:, i] = sampler.tell(log_posterior(x))
-            exp_chains[i][sample,:] = xs[:, i]
+            exp_chains[i][sample, :] = xs[:, i]
 
         # sample mean and covariance from a normal inverse wishart
         xhat = np.mean(xs[:-1], axis=1)
@@ -546,12 +593,63 @@ else:
 
 
 # drop first half of chain
-chain = chain[int(n_samples / 2.0):,:]
-exp_chains = [i[int(n_samples / 2.0):,:] for i in exp_chains]
+chain = chain[int(n_samples / 2.0):, :]
+exp_chains = [i[int(n_samples / 2.0):, :] for i in exp_chains]
+
+# dimensionalise
+conversion_chain = np.zeros((1, 2*len(names)))
+conversion_exp_chain = np.zeros((1, len(names)+1))
+for i, name in enumerate(names):
+    conversion_chain[0, i] = abs(model.dimensionalise(1, name))
+    conversion_chain[0, len(names)+i] = abs(model.dimensionalise(1, name))
+    conversion_exp_chain[0, i] = abs(model.dimensionalise(1, name))
+conversion_exp_chain[0, -1] = abs(model.dimensionalise(1, 'I'))
+
+chain = conversion_chain*chain
+
+# E0
+chain[:, 1] = DEFAULT['Ereverse']-(chain[:, 1]-DEFAULT['Estart'])
+#chain[:, len(names)+1] = DEFAULT['Ereverse']-(chain[:, len(names)+1]-DEFAULT['Estart'])
+
+# Cdl
+chain[:, 2] = 1e6*chain[:, 2]
+chain[:, len(names)+2] = 1e6*chain[:, len(names)+2]
+
+exp_chains = [conversion_exp_chain*i for i in exp_chains]
+
+# alpha
+for exp_chain in exp_chains:
+    exp_chain[:, 4] = 1.0-exp_chain[:, 4]
+chain[:, 4] = 1-chain[:, 4]
+
+# E0
+for exp_chain in exp_chains:
+    exp_chain[:, 1] = DEFAULT['Ereverse']-(exp_chain[:, 1]-DEFAULT['Estart'])
+
+# Cdl
+for exp_chain in exp_chains:
+    exp_chain[:, 2] = 1e6*exp_chain[:, 2]
+
+# n
+for exp_chain in exp_chains:
+    exp_chain[:, 5] = 1e6*exp_chain[:, 5]
 
 # convert to variance samples
 chain[:, len(mu_0):] = chain[:, len(mu_0):]**2
 
+# rearrange
+permutation = [1, 0, 3, 4, 2]
+new_chain = np.zeros(chain.shape)
+new_exp_chains = [np.zeros(i.shape) for i in exp_chains]
+for i, p in enumerate(permutation):
+    new_chain[:, p] = chain[:, i]
+    new_chain[:, p+len(names)] = chain[:, i+len(names)]
+    for new_exp_chain, exp_chain in zip(new_exp_chains, exp_chains):
+        new_exp_chain[:, p] = exp_chain[:, i]
+for new_exp_chain, exp_chain in zip(new_exp_chains, exp_chains):
+    new_exp_chain[:, -1] = exp_chain[:, -1]
+chain = new_chain
+exp_chains = new_exp_chains
 
 if synthetic:
     sample_mean = np.mean(sampled_true_parameters, 1)
@@ -565,40 +663,46 @@ else:
 # Look at distribution in chain
 print('plotting', chain.shape)
 namesbase = [r'k_0', r'E_0', r'C_{dl}', r'R_u', r'\alpha']
+namesbase = [r'E_0', r'k_0', r'\alpha', r'C_{dl}', r'R_u']
+units = [r'V', r's^{-1}', '', r'\mu F cm^{-1}', r'\Omega']
+units_std = [r'V^2', r's^{-2}', '', r'p F^2 cm^{-2}', r'\Omega^2']
 print(names)
-names = [r'$\hat{%s}$' % i for i in namesbase]
-names_std = [r'$\sigma^2_{%s}$' % i for i in namesbase]
+names = [r'\hat{%s}' % i for i in namesbase]
+names_std = [r'\sigma^2_{%s}' % i for i in namesbase]
 print(names)
 pairwise(names + names_std, chain, kde=False)
 if synthetic:
     plt.savefig('syn_hpairwise.pdf')
-    trace(names + names_std, [chain],
+    trace(names + names_std, units + units_std, [chain],
           true_values=list(sample_mean) + list(sample_var))
     plt.savefig('syn_htrace.pdf')
     trace2(names + names_std, [chain],
-          true_values=list(sample_mean) + list(sample_var))
+           true_values=list(sample_mean) + list(sample_var))
     plt.savefig('syn_htrace2.pdf')
 else:
     plt.savefig('hpairwise.pdf')
-    trace(names + names_std, [chain],
+    trace(names + names_std, units + units_std, [chain],
           true_values=list(sample_mean) + list(sample_var))
     plt.savefig('htrace.pdf')
 
-
     trace2(names + names_std, [chain],
-          true_values=list(sample_mean) + list(sample_var))
+           true_values=list(sample_mean) + list(sample_var))
     plt.savefig('htrace2.pdf')
 
-trace(names + [r'$n$'], exp_chains)
+if hierarchical:
+    trace(namesbase + [r'\sigma'], units + [r'\mu A'], exp_chains, upper=chain)
+else:
+    trace(namesbase + [r'\sigma'], units + [r'\mu A'], exp_chains)
+
 if synthetic:
     plt.savefig('syn_hchains.pdf')
 else:
     plt.savefig('hchains.pdf')
-trace2(names + [r'$n$'], exp_chains)
+trace2(names + [r'n'], exp_chains)
 if synthetic:
     plt.savefig('syn_hchains2.pdf')
 else:
     plt.savefig('hchains2.pdf')
 
-grant_trace(namesbase + [r'$n$'], exp_chains,chain)
+grant_trace(namesbase + [r'$\sigma$'], exp_chains, chain)
 plt.savefig('hchains_grant.pdf')
