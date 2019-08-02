@@ -151,7 +151,8 @@ def trace(names, units, chains, true_values=None, upper=None):
             else:
                 axes[i].set_xlabel('$'+names[i]+'$')
             axes[i].set_ylabel('$P_i('+names[i]+')$')
-            axes[i].hist(chain[:, i], bins=bins, density=True, alpha=alpha, label='Chain 1')
+            axes[i].hist(chain[:, i], bins=bins, density=True,
+                         alpha=alpha, label='Chain 1')
             axes[i].ticklabel_format(style='sci', scilimits=(-2, 5))
             if i == 4:
                 axes[i].set_ylim(0, 0.3)
@@ -367,6 +368,37 @@ filenames = ['GC01_FeIII-1mM_1M-KCl_02_009Hz.txt',
              'GC09_FeIII-1mM_1M-KCl_02_009Hz.txt',
              'GC10_FeIII-1mM_1M-KCl_02_009Hz.txt']
 
+DEFAULT = {
+    'reversed': False,
+    'Estart': 0.5,
+    'Ereverse': 0.95,
+    'omega': 9.0897,
+    'phase': 0,
+    'dE': 0.08,
+    'v': 0.06705523,
+    't_0': 0.000,
+    'T': 297.0,
+    'a': 0.07,
+    'c_inf': 1 * 1e-3 * 1e-3,
+    'D': 7.2e-6,
+    'Ru': 8.0,
+    'Cdl': 20.0 * 1e-6,
+    'E0': 0.7,
+    'k0': 0.0101,
+    'alpha': 0.5,
+}
+
+fdir = 'Ru_CN_6_9Hz60Amp_data/'
+filenames = [
+    fdir+'ACGC1.txt',
+    fdir+'ACGC2-N.txt',
+    fdir+'ACGC3.txt',
+    fdir+'ACGC4.txt',
+    fdir+'ACGC5M.txt',
+    fdir+'ACGC6.txt',
+]
+
+
 model = electrochemistry.ECModel(DEFAULT)
 data0 = electrochemistry.ECTimeData(
     filenames[0], model, ignore_begin_samples=5, ignore_end_samples=0)
@@ -465,14 +497,14 @@ if not os.path.isfile(pickle_file):
 
         problem = pints.SingleOutputProblem(
             pints_model, times, current)
-        boundaries = pints.Boundaries(lower_bounds, upper_bounds)
+        boundaries = pints.RectangularBoundaries(lower_bounds, upper_bounds)
 
         # Create a new log-likelihood function (adds an extra parameter!)
-        log_likelihood = pints.UnknownNoiseLogLikelihood(problem)
+        log_likelihood = pints.GaussianLogLikelihood(problem)
 
         # Create a new prior
         large = 1e9
-        param_prior = pints.MultivariateNormalLogPrior(
+        param_prior = pints.MultivariateGaussianLogPrior(
             mu_0, large * np.eye(len(mu_0)))
         noise_prior = pints.UniformLogPrior(
             [lower_bounds[-1]], [upper_bounds[-1]])
@@ -510,7 +542,8 @@ else:
         plt.clf()
         times = log_posterior._log_likelihood._problem._times
         values = log_posterior._log_likelihood._problem._values
-        sim_values = log_posterior._log_likelihood._problem.evaluate(sampled_true_parameters[:, i])
+        sim_values = log_posterior._log_likelihood._problem.evaluate(
+            sampled_true_parameters[:, i])
         E_0, T_0, L_0, I_0 = model._calculate_characteristic_values()
         plt.plot(T_0*times, I_0*values*1e6, label='experiment')
         plt.plot(T_0*times, I_0*sim_values*1e6, label='simulation')
